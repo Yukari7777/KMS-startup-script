@@ -11,18 +11,14 @@ echo ============================================================
 echo.
 
 rem ------------------------------------------------------------
-rem Check MapleStory executable
-rem ------------------------------------------------------------
-
-if not exist "%MAPLE%" goto ERROR_MAPLE_NOT_FOUND
-
-rem ------------------------------------------------------------
-rem Do not launch if main MapleStory is already running
+rem Offer fast shutdown if main MapleStory is already running
 rem ------------------------------------------------------------
 
 call :CHECK_PROCESS MapleStory.exe
 
 if "%PROCESS_RUNNING%"=="1" goto MAPLE_ALREADY_RUNNING
+
+if not exist "%MAPLE%" goto ERROR_MAPLE_NOT_FOUND
 
 rem ------------------------------------------------------------
 rem Detect Test World
@@ -165,10 +161,90 @@ rem ============================================================
 :MAPLE_ALREADY_RUNNING
 
 echo [STOP] MapleStory.exe is already running.
-echo [STOP] No cleanup or duplicate launch will be performed.
+echo [INFO] Fast shutdown will force-close MapleStory.exe and DwarfAxe.exe.
+echo [INFO] If Test World is running, DwarfAxe.exe will be kept running.
+echo.
+choice /C YN /N /M "Force-close MapleStory now? [Y/N]: "
+
+if errorlevel 2 goto SHUTDOWN_CANCELLED
+if errorlevel 1 goto FORCE_SHUTDOWN
+goto SHUTDOWN_CANCELLED
+
+
+:SHUTDOWN_CANCELLED
+
+echo [STOP] Shutdown cancelled. No cleanup or duplicate launch will be performed.
 echo.
 pause
 exit /b 0
+
+
+:FORCE_SHUTDOWN
+
+echo [INFO] Force-closing MapleStory.exe...
+taskkill /F /T /IM MapleStory.exe
+
+rem The process may exit on its own between detection and taskkill.
+rem Verify the actual process state below, even if taskkill reports an error.
+call :CHECK_PROCESS MapleStoryT.exe
+set "KEEP_DWARF=%PROCESS_RUNNING%"
+
+if "%KEEP_DWARF%"=="1" goto SHUTDOWN_KEEP_DWARF
+
+call :CHECK_PROCESS DwarfAxe.exe
+if "%PROCESS_RUNNING%"=="0" goto SHUTDOWN_WAIT_INIT
+
+echo [INFO] Force-closing DwarfAxe.exe...
+taskkill /F /T /IM DwarfAxe.exe
+goto SHUTDOWN_WAIT_INIT
+
+
+:SHUTDOWN_KEEP_DWARF
+
+echo [INFO] Test World is running. DwarfAxe.exe will be kept running.
+
+
+:SHUTDOWN_WAIT_INIT
+
+set /a SHUTDOWN_WAIT_COUNT=0
+
+
+:WAIT_SHUTDOWN
+
+call :CHECK_PROCESS MapleStory.exe
+set "SHUTDOWN_PENDING=%PROCESS_RUNNING%"
+
+if "%KEEP_DWARF%"=="1" goto SHUTDOWN_CHECK_RESULT
+
+call :CHECK_PROCESS DwarfAxe.exe
+if "%PROCESS_RUNNING%"=="1" set "SHUTDOWN_PENDING=1"
+
+
+:SHUTDOWN_CHECK_RESULT
+
+if "%SHUTDOWN_PENDING%"=="0" goto SHUTDOWN_COMPLETE
+if %SHUTDOWN_WAIT_COUNT% GEQ 5 goto ERROR_SHUTDOWN
+
+set /a SHUTDOWN_WAIT_COUNT+=1
+timeout /t 1 /nobreak >nul
+goto WAIT_SHUTDOWN
+
+
+:SHUTDOWN_COMPLETE
+
+echo [OK] Fast shutdown complete.
+echo.
+pause
+exit /b 0
+
+
+:ERROR_SHUTDOWN
+
+echo [ERROR] Fast shutdown failed. A target process is still running.
+echo [INFO] If access was denied, try running this script as administrator.
+echo.
+pause
+exit /b 1
 
 
 :MAPLE_STARTED_DURING_CLEANUP
